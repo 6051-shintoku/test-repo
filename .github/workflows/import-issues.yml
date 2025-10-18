@@ -38,12 +38,13 @@ jobs:
               return;
             }
 
-            // Note: In github-script@v6, use github.rest directly for API calls
-            // SOURCE_TOKEN would be used if accessing private repos (set in repository secrets)
+            // For private repos, use SOURCE_TOKEN; for public repos, GITHUB_TOKEN is sufficient
+            const sourceToken = process.env.SOURCE_TOKEN || process.env.GITHUB_TOKEN;
+            const sourceOctokit = github.getOctokit(sourceToken);
             
             // 1) Fetch all issues from source (exclude pull requests)
-            const sourceIssues = await github.paginate(
-              github.rest.issues.listForRepo,
+            const sourceIssues = await sourceOctokit.paginate(
+              sourceOctokit.rest.issues.listForRepo,
               { owner: sourceOwner, repo: sourceRepo, state: 'all', per_page: 100 }
             );
             const filteredSource = sourceIssues.filter(i => !i.pull_request);
@@ -91,8 +92,8 @@ jobs:
               core.info(`created issue #${created.data.number} for ${marker}`);
 
               if (includeComments) {
-                const comments = await github.paginate(
-                  github.rest.issues.listComments,
+                const comments = await sourceOctokit.paginate(
+                  sourceOctokit.rest.issues.listComments,
                   { owner: sourceOwner, repo: sourceRepo, issue_number: si.number, per_page: 100 }
                 );
                 for (const c of comments) {
