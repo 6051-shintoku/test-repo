@@ -40,12 +40,14 @@ jobs:
 
             // For private repos, use SOURCE_TOKEN; for public repos, GITHUB_TOKEN is sufficient
             const sourceToken = process.env.SOURCE_TOKEN || process.env.GITHUB_TOKEN;
-            const sourceOctokit = github.getOctokit(sourceToken);
+            
+            // Set up headers for source repo access (private repo support)
+            const authHeaders = sourceToken ? { authorization: `token ${sourceToken}` } : {};
             
             // 1) Fetch all issues from source (exclude pull requests)
-            const sourceIssues = await sourceOctokit.paginate(
-              sourceOctokit.rest.issues.listForRepo,
-              { owner: sourceOwner, repo: sourceRepo, state: 'all', per_page: 100 }
+            const sourceIssues = await github.paginate(
+              'GET /repos/{owner}/{repo}/issues',
+              { owner: sourceOwner, repo: sourceRepo, state: 'all', per_page: 100, headers: authHeaders }
             );
             const filteredSource = sourceIssues.filter(i => !i.pull_request);
 
@@ -92,9 +94,9 @@ jobs:
               core.info(`created issue #${created.data.number} for ${marker}`);
 
               if (includeComments) {
-                const comments = await sourceOctokit.paginate(
-                  sourceOctokit.rest.issues.listComments,
-                  { owner: sourceOwner, repo: sourceRepo, issue_number: si.number, per_page: 100 }
+                const comments = await github.paginate(
+                  'GET /repos/{owner}/{repo}/issues/{issue_number}/comments',
+                  { owner: sourceOwner, repo: sourceRepo, issue_number: si.number, per_page: 100, headers: authHeaders }
                 );
                 for (const c of comments) {
                   const commentBody = [
