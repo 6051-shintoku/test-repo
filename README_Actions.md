@@ -78,7 +78,6 @@ Secrets:
 - dry-run モード（何をインポートするか一覧だけ出す）
 - assignee / milestone のコピー（ユーザーのマッピングが必要）
 - インポート対象のフィルタ（例: created_after、labels で絞る）
-- Slack 等への通知
 
 ---
 
