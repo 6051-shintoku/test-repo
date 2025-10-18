@@ -54,12 +54,16 @@ jobs:
               core.info(`Repository access confirmed: ${repoCheck.data.full_name}, private: ${repoCheck.data.private}`);
             } catch (error) {
               core.warning(`Repository access failed: ${error.message}`);
-              if (isUsingSourceToken) {
-                core.warning('Check if SOURCE_TOKEN has access to the repository and correct permissions');
+              if (error.status === 404) {
+                if (isUsingSourceToken) {
+                  core.setFailed('❌ Private repository access denied. Possible solutions: 1) Use Classic Personal Access Token (not Fine-grained) with repo scope, 2) Ask repository owner to add you as collaborator, 3) Repository might not exist or is private to another user');
+                } else {
+                  core.setFailed('❌ Private repository requires authentication. Solutions: 1) Create Classic Personal Access Token with repo scope, 2) Set it as SOURCE_TOKEN in repository secrets, 3) Or ask repository owner to make it public. Note: Fine-grained PATs cannot access other users private repos');
+                }
               } else {
-                core.warning('Private repository requires SOURCE_TOKEN to be set in repository secrets');
+                core.setFailed(`Repository access error: ${error.message}`);
               }
-              throw error;
+              return;
             }
             
             // 1) Fetch all issues from source (exclude pull requests)
