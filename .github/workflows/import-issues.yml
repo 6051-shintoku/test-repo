@@ -1,0 +1,125 @@
+name: Import issues from other repo (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_owner:
+        description: 'Source repo owner (user or org)'
+        required: true
+      source_repo:
+        description: 'Source repo name'
+        required: true
+      include_comments:
+        description: 'Whether to copy comments (true/false)'
+        required: false
+        default: 'true'
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for context)
+        uses: actions/checkout@v4
+
+      - name: Import issues from source repo
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const sourceOwner = context.payload?.inputs?.source_owner;
+            const sourceRepo = context.payload?.inputs?.source_repo;
+            const includeComments = (context.payload?.inputs?.include_comments || 'true').toLowerCase() === 'true';
+            if (!sourceOwner || !sourceRepo) {
+              core.setFailed('source_owner and source_repo must be provided (workflow_dispatch inputs)');
+              return;
+            }
+
+            // Use SOURCE_TOKEN (from repository secrets) if set; otherwise fall back to GITHUB_TOKEN.
+            const sourceToken = process.env.SOURCE_TOKEN || process.env.GITHUB_TOKEN;
+            const sourceOctokit = github.getOctokit(sourceToken);
+            const destOctokit = github.getOctokit(process.env.GITHUB_TOKEN);
+
+            // 1) Fetch all issues from source (exclude pull requests)
+            const sourceIssues = await sourceOctokit.paginate(
+              sourceOctokit.rest.issues.listForRepo,
+              { owner: sourceOwner, repo: sourceRepo, state: 'all', per_page: 100 }
+            );
+            const filteredSource = sourceIssues.filter(i => !i.pull_request);
+
+            // 2) Get destination issues to avoid duplicates (marker in body)
+            const destIssues = await destOctokit.paginate(
+              destOctokit.rest.issues.listForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, state: 'all', per_page: 100 }
+            );
+            const importedMarkers = new Set();
+            for (const di of destIssues) {
+              if (di.body) {
+                const m = di.body.match(/Imported from: ([^#\s]+)\/([^\s#]+)#(\d+)/);
+                if (m) importedMarkers.add(`${m[1]}/${m[2]}#${m[3]}`);
+              }
+            }
+
+            // 3) Iterate source issues and import if not already imported
+            for (const si of filteredSource) {
+              const marker = `${sourceOwner}/${sourceRepo}#${si.number}`;
+              if (importedMarkers.has(marker)) {
+                core.info(`skip already imported: ${marker}`);
+                continue;
+              }
+
+              const bodyLines = [
+                `Imported from: ${marker}`,
+                `Original author: ${si.user?.login || 'unknown'}`,
+                `Original created_at: ${si.created_at}`,
+                `Original URL: ${si.html_url}`,
+                '',
+                si.body || ''
+              ];
+              const newBody = bodyLines.join('\n');
+
+              const labels = (si.labels || []).map(l => typeof l === 'string' ? l : l.name).filter(Boolean);
+
+              const created = await destOctokit.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: si.title,
+                body: newBody,
+                labels
+              });
+              core.info(`created issue #${created.data.number} for ${marker}`);
+
+              if (includeComments) {
+                const comments = await sourceOctokit.paginate(
+                  sourceOctokit.rest.issues.listComments,
+                  { owner: sourceOwner, repo: sourceRepo, issue_number: si.number, per_page: 100 }
+                );
+                for (const c of comments) {
+                  const commentBody = [
+                    `Imported comment from ${c.user?.login || 'unknown'} at ${c.created_at}`,
+                    '',
+                    c.body || ''
+                  ].join('\n');
+                  await destOctokit.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: created.data.number,
+                    body: commentBody
+                  });
+                }
+              }
+
+              if (si.state === 'closed') {
+                await destOctokit.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: created.data.number,
+                  state: 'closed'
+                });
+              }
+            }
+
+        env:
+          SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
