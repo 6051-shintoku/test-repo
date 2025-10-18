@@ -40,14 +40,38 @@ jobs:
 
             // For private repos, use SOURCE_TOKEN; for public repos, GITHUB_TOKEN is sufficient
             const sourceToken = process.env.SOURCE_TOKEN || process.env.GITHUB_TOKEN;
+            const isUsingSourceToken = !!process.env.SOURCE_TOKEN;
             
-            // Set up headers for source repo access (private repo support)
-            const authHeaders = sourceToken ? { authorization: `token ${sourceToken}` } : {};
+            core.info(`Using ${isUsingSourceToken ? 'SOURCE_TOKEN' : 'GITHUB_TOKEN'} for authentication`);
+            
+            // Debug: Check if we can access the source repository
+            try {
+              const repoCheck = await github.rest.repos.get({
+                owner: sourceOwner,
+                repo: sourceRepo,
+                headers: sourceToken !== process.env.GITHUB_TOKEN ? { authorization: `token ${sourceToken}` } : {}
+              });
+              core.info(`Repository access confirmed: ${repoCheck.data.full_name}, private: ${repoCheck.data.private}`);
+            } catch (error) {
+              core.warning(`Repository access failed: ${error.message}`);
+              if (isUsingSourceToken) {
+                core.warning('Check if SOURCE_TOKEN has access to the repository and correct permissions');
+              } else {
+                core.warning('Private repository requires SOURCE_TOKEN to be set in repository secrets');
+              }
+              throw error;
+            }
             
             // 1) Fetch all issues from source (exclude pull requests)
             const sourceIssues = await github.paginate(
               'GET /repos/{owner}/{repo}/issues',
-              { owner: sourceOwner, repo: sourceRepo, state: 'all', per_page: 100, headers: authHeaders }
+              { 
+                owner: sourceOwner, 
+                repo: sourceRepo, 
+                state: 'all', 
+                per_page: 100,
+                headers: sourceToken !== process.env.GITHUB_TOKEN ? { authorization: `token ${sourceToken}` } : {}
+              }
             );
             const filteredSource = sourceIssues.filter(i => !i.pull_request);
 
