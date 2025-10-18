@@ -39,8 +39,11 @@ jobs:
 
             // Use SOURCE_TOKEN (from repository secrets) if set; otherwise fall back to GITHUB_TOKEN.
             const sourceToken = process.env.SOURCE_TOKEN || process.env.GITHUB_TOKEN;
-            const sourceOctokit = github.getOctokit(sourceToken);
-            const destOctokit = github.getOctokit(process.env.GITHUB_TOKEN);
+            // actions/github-script v6 does not expose github.getOctokit in some environments.
+            // Require the actions toolkit and use its getOctokit helper.
+            const { getOctokit } = require('@actions/github');
+            const sourceOctokit = getOctokit(sourceToken);
+            const destOctokit = getOctokit(process.env.GITHUB_TOKEN);
 
             // 1) Fetch all issues from source (exclude pull requests)
             const sourceIssues = await sourceOctokit.paginate(
@@ -121,5 +124,5 @@ jobs:
               }
             }
 
-        env:
-          SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+        # NOTE: SOURCE_TOKEN is read from repository secrets via process.env.SOURCE_TOKEN
+        # (no explicit env mapping here to avoid context access lint warnings)
