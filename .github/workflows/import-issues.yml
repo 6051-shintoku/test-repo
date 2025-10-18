@@ -33,10 +33,6 @@ jobs:
             const sourceRepo = context.payload?.inputs?.source_repo;
             const includeComments = (context.payload?.inputs?.include_comments || 'true').toLowerCase() === 'true';
 
-            // Require core and Octokit directly to avoid environment differences in github-script
-            const core = require('@actions/core');
-            const { Octokit } = require('@octokit/rest');
-
             if (!sourceOwner || !sourceRepo) {
               core.setFailed('source_owner and source_repo must be provided (workflow_dispatch inputs)');
               return;
@@ -44,8 +40,8 @@ jobs:
 
             // Use SOURCE_TOKEN (from repository secrets) if set; otherwise fall back to GITHUB_TOKEN.
             const sourceToken = process.env.SOURCE_TOKEN || process.env.GITHUB_TOKEN;
-            const sourceOctokit = new Octokit({ auth: sourceToken });
-            const destOctokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+            const sourceOctokit = github.getOctokit(sourceToken);
+            const destOctokit = github.getOctokit(process.env.GITHUB_TOKEN);
 
             // 1) Fetch all issues from source (exclude pull requests)
             const sourceIssues = await sourceOctokit.paginate(
